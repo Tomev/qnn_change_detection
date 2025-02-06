@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.14784888.svg)](https://doi.org/10.5281/zenodo.14784888)
+
 # qnn_change_detection
 
 ## Project Goals
