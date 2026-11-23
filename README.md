@@ -1,6 +1,9 @@
 # qnn_change_detection
 
+Copyright (c) 2026 [Nicolaus Copernicus Astronomical Center](https://www.camk.edu.pl/en/)
+
 ## Project Goals
+
 To implement semantic segmentation using QNN and PyTorch.
 
 ## The Dataset
@@ -14,54 +17,66 @@ Pixel-level change ground truth is provided for 14 of the image pairs. The annot
 Source: https://ieee-dataport.org/open-access/oscd-onera-satellite-change-detection
 
 ## Classification Approaches
-- [ ] Pixel level Classification - Files:  trai.py, oscd_dataloader.py, quantum_classifier.py
-- [ ] Patch level Classification - Files:  train_patch.py, oscd_patch_dataloader.py, qcnn_classifier.py
+
+- Pixel level Classification
+- Patch level Classification
 
 ## Getting started
 
-The project can run pixel-level and patch segmentation. To do that, one 
-has to first follow the steps below. 
+The project can run pixel-level and patch segmentation. To do that, one has to first follow the steps below.
+
 - Download the repository.
-- Download required packages. (TODO: prepare requirements)
+- Download required packages (run `uv sync` in the main project folder)
 - Download the dataset (see above).
-- Prepare config files (see below). 
+- Prepare config files (see below).
 - Run the code (see below).
 
 ### Config files
 
 To prepare the config file for an experiment, one has to prepare the
 `config.py` file. The easiest way to do this is to use the prepared
-`config.py.example` file. In the selected experiment folder, copy the 
+`config.py.example` file. In the selected experiment folder, copy the
 `config.py.example` file content to the `config.py` file
+
 ```
 cp config.py.example config.py
 ```
+
 and then update the `PATH_TO_DATASET` field with the proper path to the
-dataset. You can also adjust the experiment configuration according to 
+dataset. You can also adjust the experiment configuration according to
 your needs. After that you can run the experiment.
 
 ### Running the code
 
 Running the experiment is fairly simple. If the configuration was done
 correctly, you just need to run
+
 ```
 python -m qnn_change_detection.<selected_experiment>.train
 ```
+
 and wait. By the end, the experiment will yield the training data, the
 segmentation of the pictures in the dataset and the model parameters
-(enabling one to reconstruct and reuse the model). 
+(enabling one to reconstruct and reuse the model).
+
+## Related publications
+
+1. [Original publication from this work](https://arxiv.org/abs/2503.08962)
+2. [AQML update](https://arxiv.org/abs/2602.18642)
 
 ## Remarks
 
 Here are some issues we know, but didn't figure out.
 
-- While `pennylane` and `qiskit` implementations of our model 
-are meant to do the same computations, they do not. Their 
-outputs are different. We were not able to assert why.
+- While `pennylane` and `qiskit` implementations of our model are meant to do the same computations, they do not.
+  Their outputs are different. We were not able to assert why. **2026 update**: While we no longer recall the exact code the comment refers to, we'd like to share two guesses regarding possible results mismatch.
+  1. `qiskit` has different qubit numbering than `pennylane`,
+  2. Layers (e.g. simplified two design layer) tend to be implemented differently in those two libraries.
 
-- On Windows machines, we noticed an error related to OMP. 
-Following the instructions, hinted by the error itself,
-fix the problem.
+- On Windows machines, we noticed an error related to OMP.
+  Following the instructions, hinted by the error itself,
+  fix the problem.
+
 ```
 OMP: Error #15: Initializing libiomp5md.dll, but found libiomp5md.dll already initialized.
 
