@@ -3,27 +3,29 @@
 from typing import Dict
 
 import pennylane as qml
-import torch.nn as nn
+# import torch.nn as nn
 from pennylane import numpy as np
-from pennylane_qiskit import load_noise_model
-from qiskit import QuantumCircuit, transpile
+# from pennylane_qiskit import load_noise_model
+from qiskit import QuantumCircuit#, transpile
+
 from qiskit.circuit import ParameterVector
 from qiskit.circuit.library import PauliTwoDesign
-from qiskit.qasm3 import dumps
-from qiskit.quantum_info import SparsePauliOp
+#from qiskit.qasm3 import dumps
+#from qiskit.quantum_info import SparsePauliOp
 from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
-from qiskit_aer import AerSimulator
-from qiskit_aer.noise import NoiseModel
-from qiskit_ibm_runtime import Estimator, QiskitRuntimeService
-from qiskit_ibm_runtime.fake_provider import (FakeBrisbane, FakeMelbourne,
-                                              FakeMelbourneV2)
-from qiskit_machine_learning.circuit.library import QNNCircuit
-from qiskit_machine_learning.connectors import TorchConnector
-from qiskit_machine_learning.gradients import ParamShiftEstimatorGradient
-from qiskit_machine_learning.neural_networks import EstimatorQNN
+#from qiskit_aer import AerSimulator
+#from qiskit_aer.noise import NoiseModel
+#from qiskit_ibm_runtime import Estimator, QiskitRuntimeService
+from qiskit_ibm_runtime.fake_provider import FakeBrisbane
+                                             # , FakeMelbourne,
+#                                              FakeMelbourneV2)
+#from qiskit_machine_learning.circuit.library import QNNCircuit
+#from qiskit_machine_learning.connectors import TorchConnector
+#from qiskit_machine_learning.gradients import ParamShiftEstimatorGradient
+#from qiskit_machine_learning.neural_networks import EstimatorQNN
 from qiskit_machine_learning.utils import algorithm_globals
-from qiskit_qasm3_import import parse
-from torch import Tensor
+#from qiskit_qasm3_import import parse
+#from torch import Tensor
 
 
 def create_pennylane_circuit(fm_tqc, a_tqc, qubit_map):
@@ -180,11 +182,34 @@ def main() -> None:
     pm = generate_preset_pass_manager(optimization_level=0, backend=simulator)
     transpiled_feature_map = pm.run(feature_map)
 
+    c = transpiled_feature_map.compose(transpiled_ansatz)
+
+    print(c.depth())
+
+    def count_gates_occurences_in_circuit(quantum_circuit):
+        gate_counts = {}
+        for instr in quantum_circuit.data:
+            if getattr(instr.operation, "_directive", False):
+                continue
+                
+            _name = instr.name
+            if _name in gate_counts:
+                gate_counts[_name] += 1
+            else:
+                gate_counts[_name] = 1
+        return gate_counts
+    
+    print(count_gates_occurences_in_circuit(c))
+
+    print(c)
+
+    return 
     # Pennylane transpilaiton
     # There's bug when compiling ECR gates via pennylane_qiskit.converter.
     # TODO: Analyze and submit it later. It can be easily fixed.
     # dev = qml.device("default.mixed", wires=qubit_map.values())  # Notice default.mixed
     dev = qml.device("default.qubit")
+    # dev = qml.device("lightning.qubit")
 
     p_qc = create_pennylane_circuit(
         transpiled_feature_map, transpiled_ansatz, qubit_map
@@ -201,6 +226,9 @@ def main() -> None:
     # drawer = qml.draw(p_qc)
     # print(drawer(data, weights))
     ideal_circuit = qml.QNode(p_qc, dev)
+
+    print(qml.tape.QuantumTape(p_qc))
+    return
 
     print("\n\n\tCircuit execution:")
     print(f"\t\tIdeal: {ideal_circuit(data, weights)}")

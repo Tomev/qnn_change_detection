@@ -6,28 +6,25 @@ import numpy as np
 import pennylane as qml
 import torch
 import torch.nn as nn
-from iqm.qiskit_iqm.iqm_provider import IQMProvider
 from pennylane.devices import Device
 from pennylane.measurements import ExpectationMP
 from qiskit import QuantumCircuit
-from qiskit.circuit import (Instruction, Parameter, ParameterExpression,
-                            ParameterVector, Qubit)
+from qiskit.circuit import Instruction, Parameter, ParameterExpression, ParameterVector, Qubit
 from qiskit.quantum_info import SparsePauliOp
 from qiskit.transpiler import TranspileLayout
 from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
 from qiskit_aer import AerSimulator
 from qiskit_ibm_runtime import EstimatorV2 as Estimator
 from qiskit_ibm_runtime import QiskitRuntimeService
-from qiskit_machine_learning.circuit.library import QNNCircuit
+from qiskit_machine_learning.circuit.library import qnn_circuit
 from qiskit_machine_learning.connectors import TorchConnector
 from qiskit_machine_learning.gradients import ParamShiftEstimatorGradient
 from qiskit_machine_learning.neural_networks import EstimatorQNN
+from qmetric.converters import PennylaneToQASM3
 from torch import Tensor, tensor
 
 
-def layout_to_map(
-    layout: TranspileLayout, quantum_register: List[Qubit]
-) -> Dict[int, int]:
+def layout_to_map(layout: TranspileLayout, quantum_register: List[Qubit]) -> Dict[int, int]:
     # Get simple qubit map from circuit layout.
     # The map is a dict in form {virtual -> physical}.
     # We want to act on the physical qubits.
@@ -42,8 +39,7 @@ def layout_to_map(
 
 
 class BellmanLayer(qml.operation.Operation):
-
-    num_wires = qml.operation.AnyWires
+    num_wires = None  # Defaults to None, and uses all wires
     grad_method = None
 
     def __init__(self, weights, wires, id=None):
@@ -56,7 +52,6 @@ class BellmanLayer(qml.operation.Operation):
         op_list = []
 
         for layer in range(n_layers):
-
             op_list.append(qml.H(wires=wires[0]))
 
             for i in range(len(wires) - 1):
@@ -138,24 +133,141 @@ def SimplifiedTwoDesignQiskit(n_qubits: int, n_layers: int) -> QuantumCircuit:
 #           the name of the class if necessary.
 
 
-class QNNBase(nn.Module):
-    """
-    Base class for our hybrid models.
-    """
-
+class MLP(nn.Module):
     def __init__(
-        self, n_qubits: int, quantum_dev: Device, torch_device: str = "cpu"
+        self, n_qubits: int, quantum_dev: Device, ansatz: qml.QNode | None = None, torch_device: str = "cpu"
     ) -> None:
         super().__init__()
         self.quantum_dev: Device = quantum_dev
         self.torch_device = torch_device
         self.n_qubits: int = n_qubits
 
-        self.classical_linear_layer: nn.Module = torch.nn.Linear(
-            2 * n_qubits, 2 * n_qubits
-        )
+        n_layers: int = 1  # As in max QNN
+
+        self.layers = nn.Sequential()
+        for _ in range(n_layers):
+            # self.layers.append(torch.nn.Linear(2 * n_qubits, 2 * n_qubits))
+            self.layers.append(torch.nn.Linear(2 * n_qubits, 2))
+            self.layers.append(torch.nn.ReLU())
+
+        self.classical_out_layer: nn.Module = torch.nn.Linear(2, 1)
+        self.sm: nn.Module = nn.Sigmoid()
+
+    def forward(self, x1: Tensor, x2: Tensor) -> Tensor:
+        x: Tensor = torch.cat((x1, x2), 1)
+        # TODO TR: Why is there this inter-device conversion? To cuda, to cpu, to cuda.
+        x = torch.flatten(x, 1).to(self.torch_device)
+        for l in self.layers:
+            x = l(x).to("cpu")
+        x = self.classical_out_layer(x).to(self.torch_device)
+
+        output: Tensor = self.sm(x)
+        output = torch.flatten(output)
+        return output
+
+    def forward_single(self, x: Tensor) -> Tensor:
+
+        for l in self.layers:
+            x = l(x).to("cpu")
+        x = self.classical_out_layer(x).to(self.torch_device)
+        x = x.to(self.torch_device)
+        output: Tensor = self.sm(x)
+
+        return torch.flatten(output)
+
+    def get_weights_sizes(self) -> List[torch.Size]:
+        """
+        Returns a list of sizes of the weights of each parametrized layer in the
+        model. The order of the sizes is the same as of the layers in the model.
+        This is important for the sake of apply_weights method.
+
+        :note:
+            Biases are also considered as weights in this context.
+        """
+        sizes: List[torch.Size] = []
+
+        for layer in self.layers + [self.classical_out_layer]:
+            if hasattr(layer, "parameters"):
+                for p in layer.parameters():
+                    sizes.append(p.size())
+
+        return sizes
+
+    def get_weights(self):
+        weights: List[torch.nn.Parameter] = []
+
+        for layer in self.layers + [self.classical_out_layer]:
+            if hasattr(layer, "parameters"):
+                for p in layer.parameters():
+                    weights.append(p.data)
+
+        return weights
+
+    def apply_weights(self, weights):
+        for layer in self.layers + [self.classical_out_layer]:
+            if not hasattr(layer, "parameters"):
+                continue
+            for p in layer.parameters():
+                p.data = nn.parameter.Parameter(weights.pop(0))
+
+    def apply_weights_list(self, weights: List[float]) -> None:
+        """
+        Applies given weights to the model. This is just a simple substitution
+        of the layers parameters thanks to the initial weights preprocessing. See
+        _prepare_weights method for more details.
+        """
+        n_weights: int = sum([prod(s) for s in self.get_weights_sizes()])
+        assert len(weights) == n_weights, f"Expected {n_weights} weights, got {len(weights)}."
+
+        # Transform weights to the
+        processed_weights: List[torch.Tensor] = self._prepare_weights(weights)
+        self.apply_weights(processed_weights)
+
+    def _prepare_weights(self, weights: List[float]) -> List[torch.Tensor]:
+        """
+        Dissects the weights list into the list of torch tensors of the same sizes
+        as the model weights. This is necessary for easy application of the weights.
+
+        :returns:
+            List of weights as torch tensors of the same sizes as the model weights.
+        """
+        weights_sizes: List[torch.Size] = self.get_weights_sizes()
+        chunks: List[int] = [prod(s) for s in weights_sizes]
+
+        processed_weights: List[torch.Tensor] = []
+
+        for i in range(len(chunks)):
+            processed_weights.append(
+                tensor(weights[: chunks[i]], dtype=torch.float32, requires_grad=False).reshape(weights_sizes[i])
+            )
+            weights = weights[chunks[i] :]
+
+        return processed_weights
+
+    def parameters_list(self) -> List[float]:
+        """
+        Returns a list of all the parameters of the model. This is useful for
+        the sake of optimization algorithms, which require a flat list of parameters
+        to optimize.
+        """
+        return [v for w in self.parameters() for v in w.flatten().detach().cpu().numpy()]
+
+
+class QNNBase(nn.Module):
+    """
+    Base class for our hybrid models.
+    """
+
+    def __init__(self, n_qubits: int, quantum_dev: Device, torch_device: str = "cpu") -> None:
+        super().__init__()
+        self.quantum_dev: Device = quantum_dev
+        self.torch_device = torch_device
+        self.n_qubits: int = n_qubits
+
+        self.classical_linear_layer: nn.Module = torch.nn.Linear(2 * n_qubits, 2 * n_qubits)
         self.quantum_layer: nn.Module
-        self.prepare_quantum_layer()
+        # self.prepare_quantum_layer()  # Call it at the right moment from child!
+        self.classical_out_layer: nn.Module = torch.nn.Linear(2 * n_qubits, 1)
         self.sm: nn.Module = nn.Sigmoid()
 
     @abstractmethod
@@ -166,8 +278,10 @@ class QNNBase(nn.Module):
         x: Tensor = torch.cat((x1, x2), 1)
         # TODO TR: Why is there this inter-device conversion? To cuda, to cpu, to cuda.
         x = torch.flatten(x, 1).to(self.torch_device)
-        x = self.classical_linear_layer(x).to("cpu")
+        x = self.classical_linear_layer(x).to("cpu")  # TR: This conversion solvers Pennylane issue for MPS.
+        x = self.classical_linear_layer(x).to(self.torch_device)
         x = self.quantum_layer(x).to(self.torch_device)
+        x = self.classical_out_layer(x).to(self.torch_device)
 
         output: Tensor = self.sm(x)
         output = torch.flatten(output)
@@ -224,9 +338,7 @@ class QNNBase(nn.Module):
         _prepare_weights method for more details.
         """
         n_weights: int = sum([prod(s) for s in self.get_weights_sizes()])
-        assert (
-            len(weights) == n_weights
-        ), f"Expected {n_weights} weights, got {len(weights)}."
+        assert len(weights) == n_weights, f"Expected {n_weights} weights, got {len(weights)}."
 
         # Transform weights to the
         processed_weights: List[torch.Tensor] = self._prepare_weights(weights)
@@ -247,9 +359,7 @@ class QNNBase(nn.Module):
 
         for i in range(len(chunks)):
             processed_weights.append(
-                tensor(
-                    weights[: chunks[i]], dtype=torch.float32, requires_grad=False
-                ).reshape(weights_sizes[i])
+                tensor(weights[: chunks[i]], dtype=torch.float32, requires_grad=False).reshape(weights_sizes[i])
             )
             weights = weights[chunks[i] :]
 
@@ -261,17 +371,21 @@ class QNNBase(nn.Module):
         the sake of optimization algorithms, which require a flat list of parameters
         to optimize.
         """
-        return [
-            v for w in self.parameters() for v in w.flatten().detach().cpu().numpy()
-        ]
+        return [v for w in self.parameters() for v in w.flatten().detach().cpu().numpy()]
 
 
 class QuantumNeuralNetwork(QNNBase):
-
     def __init__(
-        self, n_qubits: int, quantum_dev: Device, torch_device: str = "cpu"
+        self, n_qubits: int, quantum_dev: Device, ansatz: qml.QNode | None = None, torch_device: str = "cpu"
     ) -> None:
         super(QuantumNeuralNetwork, self).__init__(n_qubits, quantum_dev, torch_device)
+
+        if ansatz is None:
+            ansatz = self._default_ansatz()
+
+        self._ansatz: qml.QNode = ansatz
+
+        self.prepare_quantum_layer()
 
     # TR: Final layer, to be restored by the end of the experiments.
     """
@@ -302,29 +416,31 @@ class QuantumNeuralNetwork(QNNBase):
 
     def prepare_quantum_layer(self) -> None:
 
-        qnode = qml.QNode(self._circuit, self.quantum_dev)
+        @qml.qnode(self.quantum_dev)
+        def qnode(inputs: Tensor, weights: Tensor) -> list[ExpectationMP]:
+            self._ansatz.func(inputs, weights)
+            # return qml.expval(qml.PauliZ(1))
+            return [qml.expval(qml.PauliZ(i)) for i in range(self.n_qubits * 2)]
 
-        shape = qml.SimplifiedTwoDesign.shape(
-            n_layers=3, n_wires=int(2 * self.n_qubits)
-        )[1]
-
-        weight_shapes = {"weights": shape}
+        # shape = qml.SimplifiedTwoDesign.shape(n_layers=3, n_wires=int(2 * self.n_qubits))[1]
+        # weight_shapes = {"weights": shape}
+        weight_shapes = PennylaneToQASM3.probe_inputs_and_weight_shapes(self._ansatz)
+        weight_shapes.pop("inputs")
 
         self.quantum_layer = qml.qnn.TorchLayer(qnode, weight_shapes)
 
-    def _circuit(self, inputs: Tensor, weights: Tensor) -> ExpectationMP:
+    def _default_ansatz(self) -> qml.QNode:
 
-        qml.templates.AngleEmbedding(
-            inputs, wires=range(2 * self.n_qubits), rotation="Y"
-        )
+        def ansatz(inputs: Tensor, weights: Tensor) -> None:
+            qml.templates.AngleEmbedding(inputs, wires=range(2 * self.n_qubits), rotation="Y")
 
-        qml.SimplifiedTwoDesign(
-            initial_layer_weights=[0, 0, 0, 0, 0, 0, 0, 0],
-            weights=weights,
-            wires=range(int(2 * self.n_qubits)),
-        )
+            qml.SimplifiedTwoDesign(
+                initial_layer_weights=[0, 0, 0, 0, 0, 0, 0, 0],
+                weights=weights,
+                wires=range(int(2 * self.n_qubits)),
+            )
 
-        return qml.expval(qml.PauliZ(1))
+        return qml.QNode(ansatz, self.quantum_dev)
 
 
 class MCQuantumNeuralNetwork(QNNBase):
@@ -340,9 +456,7 @@ class MCQuantumNeuralNetwork(QNNBase):
         target_backend: str = "ibm_brisbane",
     ) -> None:
         self.target_backend: str = target_backend
-        super(MCQuantumNeuralNetwork, self).__init__(
-            n_qubits, quantum_dev, torch_device
-        )
+        super(MCQuantumNeuralNetwork, self).__init__(n_qubits, quantum_dev, torch_device)
 
     def prepare_quantum_layer(self) -> None:
 
@@ -374,9 +488,7 @@ class MCQuantumNeuralNetwork(QNNBase):
 
         # self.dev = qml.device("default.mixed", wires=qubit_map.values())
 
-        circuit = self.create_pennylane_circuit(
-            transpiled_feature_map, transpiled_ansatz, qubit_map
-        )
+        circuit = self.create_pennylane_circuit(transpiled_feature_map, transpiled_ansatz, qubit_map)
 
         qnode = qml.QNode(circuit, self.quantum_dev)
         n_trainable = len(ansatz.parameters)
@@ -413,7 +525,6 @@ class MCQuantumNeuralNetwork(QNNBase):
 
             for tqc in [fm_tqc, a_tqc]:
                 for gate in tqc:
-
                     g_info = self.gate_info(gate)
 
                     # For some reason there are "NONE" gates.
@@ -431,9 +542,7 @@ class MCQuantumNeuralNetwork(QNNBase):
 
         return circuit
 
-    def dissasemble_parameter_expression(
-        self, expression: ParameterExpression
-    ) -> Dict[str, Any]:
+    def dissasemble_parameter_expression(self, expression: ParameterExpression) -> Dict[str, Any]:
         # For simplicity I'll assume:
         # - The only sympy operation is addition
         # - The order is NUMBER + PARAMETER
@@ -471,12 +580,8 @@ class QiskitQuantumNeuralNetwork(QNNBase):
     An implementation of our quantum classifier using QiskitMachineLearning.
     """
 
-    def __init__(
-        self, n_qubits: int, quantum_dev: Device, torch_device: str = "cpu"
-    ) -> None:
-        super(QiskitQuantumNeuralNetwork, self).__init__(
-            n_qubits, quantum_dev, torch_device
-        )
+    def __init__(self, n_qubits: int, quantum_dev: Device, torch_device: str = "cpu") -> None:
+        super(QiskitQuantumNeuralNetwork, self).__init__(n_qubits, quantum_dev, torch_device)
 
     def prepare_quantum_layer(self) -> None:
 
@@ -491,7 +596,8 @@ class QiskitQuantumNeuralNetwork(QNNBase):
             # and prepare the feature map and observable according to the layout obtained by
             # ansatz transpilation.
             iqm_server_url = "https://cocos.resonance.meetiqm.com/garnet"
-            provider = IQMProvider(iqm_server_url)  # , token=token)
+            # provider = IQMProvider(iqm_server_url)  # , token=token)
+            provider = None
             backend = provider.get_backend()
 
             ansatz = SimplifiedTwoDesignQiskit(n_qubits=n_wires, n_layers=3)
@@ -503,9 +609,7 @@ class QiskitQuantumNeuralNetwork(QNNBase):
             qubit_map = layout_to_map(transpiled_ansatz.layout, ansatz.qubits)
 
             # Feature map creation
-            print(
-                f"Number of qubit in transpiled circuits: {transpiled_ansatz.num_qubits}"
-            )
+            print(f"Number of qubit in transpiled circuits: {transpiled_ansatz.num_qubits}")
             feature_map = QuantumCircuit(transpiled_ansatz.num_qubits)
             input_params = []
 
@@ -526,9 +630,7 @@ class QiskitQuantumNeuralNetwork(QNNBase):
             print(observable)
 
             # Network creation
-            qnn_circuit = QNNCircuit(
-                feature_map=transpiled_feature_map, ansatz=transpiled_ansatz
-            )
+            circuit = qnn_circuit(feature_map=transpiled_feature_map, ansatz=transpiled_ansatz)
 
             # sim = AerSimulator().from_backend(backend)  # Noisy
             sim = AerSimulator()
@@ -547,7 +649,7 @@ class QiskitQuantumNeuralNetwork(QNNBase):
             )
 
             estimator_qnn = EstimatorQNN(
-                circuit=qnn_circuit,
+                circuit=circuit,
                 observables=observable,
                 estimator=estimator,
                 gradient=gradient,
@@ -598,9 +700,7 @@ class Quantum1DCovolution(nn.Module):
 
         weight_shapes = {"weights": (7, 2)}
 
-        self.quantum_layer = qml.qnn.TorchLayer(
-            qml.QNode(qcnn, self.dev), weight_shapes
-        )
+        self.quantum_layer = qml.qnn.TorchLayer(qml.QNode(qcnn, self.dev), weight_shapes)
 
     def forward(self, x: Tensor) -> Any:
         return self.quantum_layer(x)
@@ -626,9 +726,7 @@ class ConvolutionalQuantumNeuralNetwork(nn.Module):
         X = Tensor()
 
         for i in range(self.n_channels):
-            x = torch.dstack(
-                (torch.flatten(x1[:, i, :, :], 1), torch.flatten(x2[:, i, :, :], 1))
-            )
+            x = torch.dstack((torch.flatten(x1[:, i, :, :], 1), torch.flatten(x2[:, i, :, :], 1)))
             x = torch.reshape(x, (batch_size, num_features)).to("cpu")
             x = self.quantum_convolutional_layer[i](x).to(self.torch_device)
             torch.cat((X, x))

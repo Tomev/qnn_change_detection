@@ -1,0 +1,24 @@
+[project]
+name = "qnn-change-detection"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aqmlator",
+    "boto3>=1.42.49",
+    "mlflow==3.8.1",
+    "niapy>=2.7.0",
+    "optuna>=4.7.0",
+    "pennylane-lightning>=0.43.0",
+    "pennylane-sf>=0.29.0",
+    "qiskit-aer>=0.17.2",
+    "qiskit-machine-learning>=0.8.2",
+    "qiskit-qasm3-import>=0.6.0",
+    "scikit-image>=0.26.0",
+    "torch>=2.9.1",
+    "torcheval>=0.0.7",
+]
+
+[tool.uv.sources]
+aqmlator = { git = "https://github.com/Tomev/AQMLator.git", branch = "tr_ansatze_finder" }

@@ -5,7 +5,7 @@ import pennylane as qml
 import torch
 from torch import Tensor, rand
 
-from src.quantum_classifier import MCQuantumNeuralNetwork, QuantumNeuralNetwork
+from qnn_change_detection.quantum_classifier import MCQuantumNeuralNetwork, QuantumNeuralNetwork
 
 
 class TestQNNBase(unittest.TestCase, ABC):
@@ -31,14 +31,11 @@ class TestQNNBase(unittest.TestCase, ABC):
 
 
 class TestQuantumNeuralNetwork(TestQNNBase):
-
     def setUp(self) -> None:
         super().setUp()
 
         self.dev = qml.device("default.qubit")
-        self.model = QuantumNeuralNetwork(
-            self.n_wires // 2, quantum_dev=self.dev, torch_device=self.torch_dev
-        )
+        self.model = QuantumNeuralNetwork(self.n_wires // 2, quantum_dev=self.dev, torch_device=self.torch_dev)
 
     def test_model_forward(self):
         self.model(self.I1, self.I2)
@@ -46,23 +43,18 @@ class TestQuantumNeuralNetwork(TestQNNBase):
 
 
 class TestMCQuantumNeuralNetwork(TestQNNBase):
-
     def setUp(self) -> None:
         super().setUp()
 
         self.dev = qml.device("default.qubit")
-        self.model = MCQuantumNeuralNetwork(
-            self.n_wires // 2, quantum_dev=self.dev, torch_device=self.torch_dev
-        )
+        self.model = MCQuantumNeuralNetwork(self.n_wires // 2, quantum_dev=self.dev, torch_device=self.torch_dev)
 
     def test_model_forward(self):
         self.model.forward_single(self.X)
         assert True
 
     def test_different_models_outputs(self):
-        other_model = MCQuantumNeuralNetwork(
-            self.n_wires // 2, quantum_dev=self.dev, torch_device=self.torch_dev
-        )
+        other_model = MCQuantumNeuralNetwork(self.n_wires // 2, quantum_dev=self.dev, torch_device=self.torch_dev)
 
         model_out = self.model.forward_single(self.X)
         other_model_out = other_model.forward_single(self.X)
@@ -70,9 +62,7 @@ class TestMCQuantumNeuralNetwork(TestQNNBase):
         assert torch.not_equal(model_out, other_model_out)
 
     def test_different_weights_on_model_init(self):
-        other_model = MCQuantumNeuralNetwork(
-            self.n_wires // 2, quantum_dev=self.dev, torch_device=self.torch_dev
-        )
+        other_model = MCQuantumNeuralNetwork(self.n_wires // 2, quantum_dev=self.dev, torch_device=self.torch_dev)
 
         model_weights = self.model.get_weights()
         other_model_weights = other_model.get_weights()

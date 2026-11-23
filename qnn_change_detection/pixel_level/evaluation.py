@@ -3,9 +3,9 @@ import os
 import matplotlib.pyplot as plt
 import torch
 
-from src.mlflow_utils import get_model_state_dict, get_run_config
-from src.pixel_level.utils import get_datasets
-from src.quantum_classifier import QuantumNeuralNetwork
+from qnn_change_detection.mlflow_utils import get_model_state_dict, get_run_config
+from qnn_change_detection.pixel_level.utils import get_datasets
+from qnn_change_detection.quantum_classifier import QuantumNeuralNetwork
 
 
 def save_test_results(dset, model, run_id, device="cpu", show_results=False):
@@ -57,9 +57,9 @@ def generate_prediction_images(run_id: str) -> None:
     exp_conf = get_run_config(run_id)
 
     print("Generating prediction images.")
-    model = QuantumNeuralNetwork(
-        n_qubits=exp_conf["NUM_QUBITS"], quantum_dev=exp_conf["general"]["DEV"]
-    ).to(exp_conf["general"]["TORCH_DEVICE"])
+    model = QuantumNeuralNetwork(n_qubits=exp_conf["NUM_QUBITS"], quantum_dev=exp_conf["general"]["DEV"]).to(
+        exp_conf["general"]["TORCH_DEVICE"]
+    )
 
     # TODO TR: Needs testing.
     model.load_state_dict(get_model_state_dict(run_id))
