@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, Optional
 
 import mlflow
@@ -15,9 +16,7 @@ def get_run_config(run_id: str) -> Dict[str, Any]:
 
     exp_config = {
         "general": mlflow.artifacts.load_dict(artifact_uri + "/config_general"),
-        "metaheuristic": mlflow.artifacts.load_dict(
-            artifact_uri + "/config_metaheuristic"
-        ),
+        "metaheuristic": mlflow.artifacts.load_dict(artifact_uri + "/config_metaheuristic"),
     }
 
     return exp_config
@@ -34,18 +33,16 @@ def get_exp_id(exp_conf: Dict[str, Any], exp_type: str) -> Any:
     return _ensure_created(exp_conf, exp_type).experiment_id
 
 
-def _ensure_created(
-    exp_conf: Dict[str, Any], exp_type: str
-) -> mlflow.entities.Experiment:
+def _ensure_created(exp_conf: Dict[str, Any], exp_type: str) -> mlflow.entities.Experiment:
     name: str = _get_exp_name(exp_conf)
 
     # https://mlflow.org/docs/latest/getting-started/logging-first-model/step3-create-experiment.html
     if not mlflow.get_experiment_by_name(name):
-        mlflow.create_experiment(name=name, tags=_get_tags(exp_conf, exp_type))
+        mlflow.create_experiment(
+            name=name, tags=_get_tags(exp_conf, exp_type), artifact_location=os.environ["MLFLOW_ARTIFACTS_ROOT"]
+        )
 
-    experiment: Optional[mlflow.entities.Experiment] = mlflow.get_experiment_by_name(
-        name
-    )
+    experiment: Optional[mlflow.entities.Experiment] = mlflow.get_experiment_by_name(name)
 
     if isinstance(experiment, mlflow.entities.Experiment):
         return experiment
@@ -54,7 +51,8 @@ def _ensure_created(
 
 
 def _get_exp_name(exp_conf: Dict[str, Any]) -> str:
-    name: str = "SIPwQNN_Manish_Rerun"
+    # name: str = "SIPwQNN_AQML_Data_Reuploading-LinearOutLayer:"
+    name: str = "SIPwQNN_ClassicMLP_2_Layers_low_neurons"
 
     if exp_conf["metaheuristic"]["initialization"]:
         name += "meta_init-"
@@ -62,16 +60,11 @@ def _get_exp_name(exp_conf: Dict[str, Any]) -> str:
     if exp_conf["metaheuristic"]["tuning"]:
         name += "meta-tuning-"
 
-    if name == "SIPwQNN:":
-        name += "baseline-"
-
-    name = name[:-1]  # remove last -
-
-    return name
+    return name[:-1]  # remove last -
 
 
 def _get_tags(config: Dict[str, Any], exp_type: str) -> Dict[str, str]:
-    tags: Dict[str, str] = {"project": "SIPwQNN", "exp_type": exp_type}
+    tags: Dict[str, str] = {"project": "SIPwQNN", "exp_type": exp_type, "model": "AQML", "purpose": "Research"}
 
     if config["metaheuristic"]["training"]:
         tags["training"] = "metaheuristic"

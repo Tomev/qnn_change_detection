@@ -9,7 +9,7 @@ from niapy.task import OptimizationType, Task
 from numpy import pi
 from sklearn.metrics import accuracy_score
 
-from src.quantum_classifier import QuantumNeuralNetwork
+from qnn_change_detection.quantum_classifier import QuantumNeuralNetwork
 
 
 class QuantumBinaryClassifierTrainingProblem(Problem):
@@ -46,24 +46,18 @@ class MetaheuristicClassifierTrainer:
     TODO TR: Consider adding verbose option.
     """
 
-    def __init__(
-        self, algorithm: Algorithm, n_iterations: int = 1000, cutoff: float = 0
-    ) -> None:
+    def __init__(self, algorithm: Algorithm, n_iterations: int = 1000, cutoff: float = 0) -> None:
         """ """
         self.n_iterations: int = n_iterations
         self.algorithm: Algorithm = algorithm
         self.cutoff: float = cutoff
 
     def get_task(self, classifier, data_loader):
-        problem: QuantumBinaryClassifierTrainingProblem = (
-            QuantumBinaryClassifierTrainingProblem(
-                classifier=classifier, data_loader=data_loader
-            )
+        problem: QuantumBinaryClassifierTrainingProblem = QuantumBinaryClassifierTrainingProblem(
+            classifier=classifier, data_loader=data_loader
         )
 
-        task: Task = Task(
-            problem=problem, max_iters=self.n_iterations, cutoff_value=self.cutoff
-        )
+        task: Task = Task(problem=problem, max_iters=self.n_iterations, cutoff_value=self.cutoff)
 
         return task
 
@@ -151,10 +145,8 @@ class QuantumClassifierTrainingAccuracyProblem(QuantumBinaryClassifierTrainingPr
 
 class MetaheuristicClassifierAccuracyTrainer(MetaheuristicClassifierTrainer):
     def get_task(self, classifier, dataloader):
-        problem: QuantumClassifierTrainingAccuracyProblem = (
-            QuantumClassifierTrainingAccuracyProblem(
-                classifier=classifier, data_loader=dataloader
-            )
+        problem: QuantumClassifierTrainingAccuracyProblem = QuantumClassifierTrainingAccuracyProblem(
+            classifier=classifier, data_loader=dataloader
         )
 
         task: Task = Task(

@@ -1,5 +1,3 @@
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.14784888.svg)](https://doi.org/10.5281/zenodo.14784888)
-
 # qnn_change_detection
 
 ## Project Goals
@@ -47,7 +45,7 @@ your needs. After that you can run the experiment.
 Running the experiment is fairly simple. If the configuration was done
 correctly, you just need to run
 ```
-python -m src.<selected_experiment>.train
+python -m qnn_change_detection.<selected_experiment>.train
 ```
 and wait. By the end, the experiment will yield the training data, the
 segmentation of the pictures in the dataset and the model parameters

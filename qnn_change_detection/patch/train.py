@@ -11,12 +11,14 @@ for multispectral earth observation using convolutional neural networks. In IGAR
 IEEE International Geoscience and Remote Sensing Symposium (pp. 2115-2118). IEEE.
 
 """
+
 import os
 import random
 from datetime import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
+
 # Imports
 # PyTorch
 import torch
@@ -28,10 +30,10 @@ from torch.utils.data import DataLoader
 from torcheval.metrics import BinaryConfusionMatrix, BinaryF1Score
 from tqdm import tqdm
 
-from src.oscd_patch_dataloader import ChangeDetectionDataset
-from src.oscd_transforms import RandomFlip, RandomRot
-from src.patch.config import get_config
-from src.qcnn_classifier import QuantumNeuralNetwork
+from qnn_change_detection.oscd_patch_dataloader import ChangeDetectionDataset
+from qnn_change_detection.oscd_transforms import RandomFlip, RandomRot
+from qnn_change_detection.patch.config import get_config
+from qnn_change_detection.qcnn_classifier import QuantumNeuralNetwork
 
 # GLOBAL Variables
 ##########################
@@ -52,7 +54,6 @@ def train(dataloader, model, loss_fn, optimizer, device="cpu"):
     avg_loss: float = 0
 
     for batch, sample in enumerate(dataloader):
-
         I1, I2, y = sample["I1"], sample["I2"], sample["label"]
         I1 = I1.to(device)
         I2 = I2.to(device)
@@ -74,9 +75,7 @@ def train(dataloader, model, loss_fn, optimizer, device="cpu"):
         pred = torch.exp(pred)
         pred = torch.argmax(pred, dim=1)
 
-        correct += accuracy_score(
-            y.detach().cpu().numpy(), pred.detach().cpu().numpy(), normalize=False
-        )
+        correct += accuracy_score(y.detach().cpu().numpy(), pred.detach().cpu().numpy(), normalize=False)
         metric_f1.update(pred, y)
         if batch % 100 == 0:
             loss, current = loss.item(), batch * len(y)
@@ -119,9 +118,7 @@ def test(dataloader, model, loss_fn, device="cpu"):
             pred = torch.argmax(pred, dim=1)
             # print(pred)
 
-            correct += accuracy_score(
-                y.detach().cpu().numpy(), pred.detach().cpu().numpy(), normalize=False
-            )
+            correct += accuracy_score(y.detach().cpu().numpy(), pred.detach().cpu().numpy(), normalize=False)
 
             metric_f1.update(pred, y)
             metric_bcm.update(pred, y)
@@ -130,10 +127,7 @@ def test(dataloader, model, loss_fn, device="cpu"):
             class2_gt += len(y) - y.sum()
 
             class1_correct += (
-                torch.logical_and(torch.logical_not(pred), torch.logical_not(y))
-                .type(torch.float)
-                .sum()
-                .item()
+                torch.logical_and(torch.logical_not(pred), torch.logical_not(y)).type(torch.float).sum().item()
             )
             class2_correct += torch.logical_and(pred, y).type(torch.float).sum().item()
 
@@ -160,9 +154,7 @@ def test(dataloader, model, loss_fn, device="cpu"):
 
     print("Validation BinaryF1Score: ", metric_f1.compute().item())
     print("Validation Binary Confusion Matrix: ", metric_bcm.compute())
-    print(
-        f"Validation Error: \n Accuracy: {(100*correct):>0.1f}%, Avg BCE loss: {avg_loss:>8f} \n"
-    )
+    print(f"Validation Error: \n Accuracy: {(100 * correct):>0.1f}%, Avg BCE loss: {avg_loss:>8f} \n")
     cm = metric_bcm.compute().to("cpu").numpy()
     val_acc.append(correct)
     val_loss.append(avg_loss)
@@ -295,9 +287,7 @@ def main():
         n_components=CONF["PCA_COMPONENTS"],
     )
     sample_weights = train_dataset.get_sample_weights()
-    train_data_loader = DataLoader(
-        train_dataset, batch_size=CONF["BATCH_SIZE"], shuffle=True, num_workers=1
-    )
+    train_data_loader = DataLoader(train_dataset, batch_size=CONF["BATCH_SIZE"], shuffle=True, num_workers=1)
 
     test_dataset = ChangeDetectionDataset(
         CONF["PATH_TO_DATASET"],
@@ -310,16 +300,12 @@ def main():
         fp_modifier=CONF["FP_MODIFIER"],
         n_components=CONF["PCA_COMPONENTS"],
     )
-    test_data_loader = DataLoader(
-        test_dataset, batch_size=CONF["BATCH_SIZE"], shuffle=True, num_workers=4
-    )
+    test_data_loader = DataLoader(test_dataset, batch_size=CONF["BATCH_SIZE"], shuffle=True, num_workers=4)
 
     print("Train sample_weights: ", sample_weights)
 
     print("Number of QUBITS #", CONF["NUM_QUBITS"])
-    model = QuantumNeuralNetwork(CONF["NUM_BANDS"], n_qubits=CONF["NUM_QUBITS"]).to(
-        device
-    )
+    model = QuantumNeuralNetwork(CONF["NUM_BANDS"], n_qubits=CONF["NUM_QUBITS"]).to(device)
 
     print(model)
     print(model.parameters())
@@ -333,7 +319,7 @@ def main():
     optimizer = torch.optim.RMSprop(model.parameters(), lr=1e-3)
 
     for t in tqdm(range(epochs)):
-        print(f"Epoch {t+1}\n-------------------------------")
+        print(f"Epoch {t + 1}\n-------------------------------")
         train(train_data_loader, model, loss, optimizer, device)
         test(test_data_loader, model, loss, device)
 
@@ -349,16 +335,12 @@ def main():
 
     print("Generating prediction images.")
     if CONF["LOAD_TRAINED"]:
-        model = QuantumNeuralNetwork(CONF["NUM_BANDS"], n_qubits=CONF["NUM_QUBITS"]).to(
-            device
-        )
+        model = QuantumNeuralNetwork(CONF["NUM_BANDS"], n_qubits=CONF["NUM_QUBITS"]).to(device)
         model.load_state_dict(torch.load("./patch_model.pth"))
         print("LOAD OK")
 
     net_name = "patch_qclassify"
-    save_test_results(
-        test_dataset, model, net_name, device, show_results=CONF["SHOW_RESULTS"]
-    )
+    save_test_results(test_dataset, model, net_name, device, show_results=CONF["SHOW_RESULTS"])
 
     time_elapsed = datetime.now() - start_time
 

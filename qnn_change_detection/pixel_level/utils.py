@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, WeightedRandomSampler
 
-from src.oscd_dataloader import ChangeDetectionDataset
+from qnn_change_detection.oscd_dataloader import ChangeDetectionDataset
 
 
 def set_random_seed(random_seed):
@@ -39,12 +39,8 @@ def get_datasets(CONF):
 
 def prepare_data_loader(dataset, CONF):
     sample_weights = dataset.get_sample_weights()
-    sampler = WeightedRandomSampler(
-        weights=sample_weights, num_samples=len(sample_weights), replacement=True
-    )
-    dataloader = DataLoader(
-        dataset, batch_size=CONF["BATCH_SIZE"], sampler=sampler, num_workers=4
-    )
+    sampler = WeightedRandomSampler(weights=sample_weights, num_samples=len(sample_weights), replacement=True)
+    dataloader = DataLoader(dataset, batch_size=CONF["BATCH_SIZE"], sampler=sampler, num_workers=4)
 
     return dataloader
 

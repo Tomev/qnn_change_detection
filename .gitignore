@@ -1,0 +1,18 @@
+.vscode/
+*__pycache__*
+results/*
+*.pth
+*quick_test.py
+*.pyc
+mlruns
+mlartifacts
+*.DS_Store
+*.pkl
+*quick_tests.py
+.venv*
+*.env
+*.zip
+*.db
+
+# Configs
+qnn_change_detection/patch/config.py
